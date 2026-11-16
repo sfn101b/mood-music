@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ESP32 Face Mood Music Player</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F2F4EF;--surface:#FFFFFF;--ink:#14211B;--muted:#4D5B54;--line:#C9D2CB;--accent:#1F5FD1;--accent-ink:#FFFFFF;--warn:#FFF1B8;--code:#0F1A15;--code-ink:#DCEBDD;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F1A15;--surface:#16251E;--ink:#E7EFE9;--muted:#9FB0A6;--line:#2C4036;--accent:#6E9BFF;--accent-ink:#0F1A15;--warn:#3A3312;--code:#0A120E;--code-ink:#DCEBDD;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0F1A15;--surface:#16251E;--ink:#E7EFE9;--muted:#9FB0A6;--line:#2C4036;--accent:#6E9BFF;--accent-ink:#0F1A15;--warn:#3A3312;--code:#0A120E;--code-ink:#DCEBDD;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.6 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:28px 18px 64px}
+h1{font-size:clamp(2rem,7vw,3.1rem);line-height:1.08;margin:0 0 12px;letter-spacing:-.02em}
+h2{font-size:1.4rem;margin:48px 0 10px;letter-spacing:-.01em}
+h3{font-size:1.05rem;margin:0 0 4px}
+p{margin:0 0 12px;max-width:68ch}
+.lead{font-size:1.1rem;color:var(--muted)}
+.mono,code,pre{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.picker{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:22px 0 12px}
+.picker button{font:inherit;font-size:1.7rem;background:var(--surface);border:2px solid var(--line);border-radius:12px;padding:10px 0;cursor:pointer;color:var(--ink)}
+.picker button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);}
+.picker button:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.readout{background:var(--surface);border:2px solid var(--line);border-radius:12px;padding:16px 18px}
+.readout .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+.readout .row:last-child{border:0}
+.readout span:first-child{color:var(--muted)}
+.readout b{font-family:"IBM Plex Mono",monospace;text-align:right}
+.note{background:var(--warn);border-left:4px solid var(--accent);padding:12px 14px;border-radius:6px;margin:16px 0}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.94rem}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border:0}
+th{color:var(--muted);font-weight:600}
+td:last-child{font-family:"IBM Plex Mono",monospace}
+ul.parts{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+ul.parts li{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+ul.parts li span{display:block;color:var(--muted);font-size:.92rem}
+.stages{list-style:none;padding:0;margin:0;border-left:3px solid var(--line)}
+.stages li{padding:0 0 18px 18px;position:relative}
+.stages li::before{content:"";position:absolute;left:-9px;top:6px;width:15px;height:15px;border-radius:50%;background:var(--bg);border:3px solid var(--accent)}
+.stages li:first-child::before{background:var(--accent)}
+pre{background:var(--code);color:var(--code-ink);padding:16px;border-radius:10px;overflow-x:auto;font-size:.82rem;line-height:1.55;margin:10px 0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+summary{cursor:pointer;font-weight:600}
+code.inline{background:var(--surface);border:1px solid var(--line);padding:1px 6px;border-radius:5px;font-size:.88em}
+footer{margin-top:48px;color:var(--muted);font-size:.9rem}
+@media (prefers-reduced-motion:no-preference){.readout b{transition:opacity .15s}}
+</style>
+</head>
+<body>
+<main>
+<h1>Face Mood Music Player</h1>
+<p class="lead">An ESP32 reads a face through a camera, estimates the visible expression, and plays a matching song from an SD card. Built for a school exhibition or personal prototype.</p>
+
+<p>Tap an expression to see which song the player picks.</p>
+<div class="picker" id="picker" role="group" aria-label="Facial expression">
+<button aria-pressed="true" data-i="0" aria-label="Happy">😊</button>
+<button aria-pressed="false" data-i="1" aria-label="Sad">😢</button>
+<button aria-pressed="false" data-i="2" aria-label="Angry">😠</button>
+<button aria-pressed="false" data-i="3" aria-label="Neutral">😐</button>
+<button aria-pressed="false" data-i="4" aria-label="Surprised">😮</button>
+</div>
+<div class="readout" aria-live="polite">
+<div class="row"><span>Expression</span><b id="o-face">Happy</b></div>
+<div class="row"><span>Music</span><b id="o-music">Happy music</b></div>
+<div class="row"><span>SD card folder</span><b id="o-file">/01 (songs 001 to 005)</b></div>
+</div>
+<div class="note">These are estimates of visible facial expressions, not guaranteed readings of someone’s real emotions.</div>
+
+<h2>How it works</h2>
+<ul class="parts">
+<li>Camera captures the person’s face.</li>
+<li>ESP32 detects the face.</li>
+<li>A small AI model estimates the expression.</li>
+<li>ESP32 picks a song from the SD card.</li>
+<li>DFPlayer Mini plays it through the speaker.</li>
+<li>Each mood has 5 songs. When the same mood is detected again, the next song plays.</li>
+</ul>
+<p style="margin-top:12px">The ESP32 DevKit has no built-in camera and limited RAM, so reliable five-mood recognition on it is hard. Start with a small, quantized model, not a large one.</p>
+
+<h2>Components</h2>
+<ul class="parts">
+<li>ESP32 DevKit V1<span>Main controller and AI processing.</span></li>
+<li>OV2640 camera module<span>Captures the face. Use a 2.54 mm breakout adapter for its connector.</span></li>
+<li>DFPlayer Mini<span>Plays the selected MP3 files.</span></li>
+<li>MicroSD card, 8 or 16 GB<span>Stores the songs, formatted FAT32.</span></li>
+<li>Speaker, 4 Ω 3 W<span>Music output.</span></li>
+<li>Capacitor, 470–1000 µF<span>Across the DFPlayer supply, to reduce power dips.</span></li>
+<li>Also needed<span>1 kΩ resistor for DFPlayer RX, breadboard, jumper wires, stable 5 V supply with enough current.</span></li>
+</ul>
+
+<h2>Wiring</h2>
+<h3>OV2640 camera to ESP32</h3>
+<p>Common ESP32 camera GPIO mapping.</p>
+<div class="scroll"><table>
+<tr><th>OV2640</th><th>ESP32 GPIO</th></tr>
+<tr><td>D0 / Y2</td><td>5</td></tr><tr><td>D1 / Y3</td><td>18</td></tr><tr><td>D2 / Y4</td><td>19</td></tr><tr><td>D3 / Y5</td><td>21</td></tr>
+<tr><td>D4 / Y6</td><td>36</td></tr><tr><td>D5 / Y7</td><td>39</td></tr><tr><td>D6 / Y8</td><td>34</td></tr><tr><td>D7 / Y9</td><td>35</td></tr>
+<tr><td>XCLK</td><td>0</td></tr><tr><td>PCLK</td><td>22</td></tr><tr><td>VSYNC</td><td>25</td></tr><tr><td>HREF</td><td>23</td></tr>
+<tr><td>SIOD</td><td>26</td></tr><tr><td>SIOC</td><td>27</td></tr><tr><td>PWDN</td><td>32</td></tr><tr><td>RESET</td><td>not connected (-1)</td></tr>
+<tr><td>3.3V / GND</td><td>3.3V / GND</td></tr>
+</table></div>
+<div class="note">This is a bare parallel camera, not a plug-and-play ESP32-CAM board. Check the breakout’s pin labels and voltage first. GPIO 0 is a boot pin, so the camera clock must not stop the ESP32 from booting.</div>
+
+<h3>DFPlayer Mini to ESP32</h3>
+<div class="scroll"><table>
+<tr><th>DFPlayer Mini</th><th>ESP32 DevKit</th></tr>
+<tr><td>VCC</td><td>5V</td></tr><tr><td>GND</td><td>GND</td></tr>
+<tr><td>RX</td><td>GPIO 17 via 1 kΩ</td></tr><tr><td>TX</td><td>GPIO 16</td></tr>
+<tr><td>SPK1 / SPK2</td><td>Speaker + / −</td></tr>
+</table></div>
+<p style="margin-top:12px">Never connect the speaker directly to ESP32 pins. Join all grounds together. Do not power the camera from an overloaded 3.3 V output.</p>
+
+<h2>SD card songs</h2>
+<p>Format as FAT32. Make one folder per mood (01 to 05) with up to 5 songs in each, named 001.mp3 to 005.mp3:</p>
+<pre>SD CARD
+├── 01  Happy: 001.mp3 ... 005.mp3
+├── 02  Sad (motivational): 001.mp3 ... 005.mp3
+├── 03  Angry (relaxing): 001.mp3 ... 005.mp3
+├── 04  Neutral (soft): 001.mp3 ... 005.mp3
+└── 05  Surprised (energetic): 001.mp3 ... 005.mp3</pre>
+<p>Each time a mood is detected, the player moves to that mood’s next song and goes back to 001 after 005.</p>
+
+<h2>AI model</h2>
+<p>Use Edge Impulse with TensorFlow Lite Micro. Train a small classifier with five classes: Happy, Sad, Angry, Neutral, Surprised. It takes a cropped face image resized to the model’s input size. Inference runs on the ESP32, so no internet is needed while it runs.</p>
+
+<h2>Arduino code</h2>
+<p>Install DFRobotDFPlayerMini, the ESP32 board package (includes esp32-camera) and your Edge Impulse library. This is the hardware and music framework. <code class="inline">detectMood()</code> returns Neutral until you connect your trained model.</p>
+<details>
+<summary>Show full code</summary>
+<pre>#include "esp_camera.h"
+#include "DFRobotDFPlayerMini.h"
+#include "HardwareSerial.h"
+
+HardwareSerial musicSerial(2);
+DFRobotDFPlayerMini player;
+camera_config_t config;
+
+enum Mood { HAPPY, SAD, ANGRY, NEUTRAL, SURPRISED };
+Mood currentMood = NEUTRAL;
+
+const int SONGS_PER_MOOD = 5;
+int nextSong[5] = {1, 1, 1, 1, 1};  // next file for each mood
+
+void setupCamera() {
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = 5;  config.pin_d1 = 18;
+  config.pin_d2 = 19; config.pin_d3 = 21;
+  config.pin_d4 = 36; config.pin_d5 = 39;
+  config.pin_d6 = 34; config.pin_d7 = 35;
+  config.pin_xclk = 0;   config.pin_pclk = 22;
+  config.pin_vsync = 25; config.pin_href = 23;
+  config.pin_sccb_sda = 26; config.pin_sccb_scl = 27;
+  config.pin_pwdn = 32;  config.pin_reset = -1;
+  config.xclk_freq_hz = 10000000;
+  config.pixel_format = PIXFORMAT_RGB565;
+  config.frame_size = FRAMESIZE_QQVGA;
+  config.jpeg_quality = 12;
+  config.fb_count = 1;
+  config.fb_location = CAMERA_FB_IN_DRAM;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+  if (esp_camera_init(&amp;config) != ESP_OK) {
+    Serial.println("Camera error");
+    while (true) delay(1000);
+  }
+}
+
+// Replace with Edge Impulse face detection + emotion model
+Mood detectMood() {
+  camera_fb_t *frame = esp_camera_fb_get();
+  if (!frame) return NEUTRAL;
+  // TODO: detect face, crop, resize, run model,
+  // return the highest-confidence mood.
+  esp_camera_fb_return(frame);
+  return NEUTRAL;  // temporary, NOT AI detection
+}
+
+void playMoodMusic(Mood mood) {
+  // folder 01 to 05 = mood, file 001 to 005 = song
+  player.playFolder(mood + 1, nextSong[mood]);
+  nextSong[mood]++;
+  if (nextSong[mood] > SONGS_PER_MOOD) nextSong[mood] = 1;
+}
+
+void setup() {
+  Serial.begin(115200);
+  musicSerial.begin(9600, SERIAL_8N1, 16, 17);
+  if (!player.begin(musicSerial)) {
+    Serial.println("DFPlayer not detected");
+    while (true) delay(1000);
+  }
+  player.volume(22);
+  setupCamera();
+}
+
+void loop() {
+  Mood detected = detectMood();
+  if (detected != currentMood) {
+    currentMood = detected;
+    playMoodMusic(currentMood);
+  }
+  // song ended and same mood continues: next song
+  if (player.available() &amp;&amp;
+      player.readType() == DFPlayerPlayFinished) {
+    playMoodMusic(currentMood);
+  }
+  delay(3000);
+}</pre>
+</details>
+
+<h2>Build in stages</h2>
+<ol class="stages">
+<li><h3>Music player</h3>Connect ESP32 and DFPlayer Mini. Test all five songs. Do this first.</li>
+<li><h3>Camera</h3>Connect the OV2640 and confirm capture over Serial.</li>
+<li><h3>Face detection</h3>Add a lightweight face detector.</li>
+<li><h3>Mood recognition</h3>Add a quantized emotion model and test its accuracy.</li>
+<li><h3>Automatic music</h3>Connect the prediction to the five songs.</li>
+</ol>
+
+<h2>Board advice</h2>
+<p>If you have not bought the camera yet, an ESP32-S3 with PSRAM is a better board for camera-based TinyML. If you already own the ESP32 DevKit, keep it: get music and camera working first, then add a small model.</p>
+</main>
+
+<script>
+(function(){
+var moods=[
+["Happy","Happy music","/01 (songs 001 to 005)"],
+["Sad","Motivational music","/02 (songs 001 to 005)"],
+["Angry","Relaxing music","/03 (songs 001 to 005)"],
+["Neutral","Soft music","/04 (songs 001 to 005)"],
+["Surprised","Energetic music","/05 (songs 001 to 005)"]];
+var btns=document.querySelectorAll("#picker button");
+btns.forEach(function(b){
+b.addEventListener("click",function(){
+var m=moods[+b.dataset.i];
+btns.forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});
+document.getElementById("o-face").textContent=m[0];
+document.getElementById("o-music").textContent=m[1];
+document.getElementById("o-file").textContent=m[2];
+});
+});
+})();
+</script>
+</body>
+</html>
